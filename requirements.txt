@@ -1,0 +1,16 @@
+Babel==2.17.0
+easydict==1.13
+fastapi==0.116.1
+firebase_admin==7.0.0
+insightface==0.7.3
+numpy==1.25.2
+opencv_python==4.11.0.86
+opencv_python_headless==4.12.0.88
+openpyxl==3.1.5
+pandas==2.3.1
+Pillow==11.3.0
+scipy==1.16.1
+tensorboardX==2.6.4
+torch==1.13.1+cu117
+torchvision==0.14.1+cu117
+tqdm==4.67.1
