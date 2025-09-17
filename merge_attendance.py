@@ -55,25 +55,50 @@ def merge_attendance():
     # Load the merged data
     df_merged = pd.read_excel(output_path)
 
-    # Get unique dates
-    dates = sorted(df_merged['Daty'].dropna().unique())
+    # Get unique dates and sort them by day number
+    unique_dates = df_merged['Daty'].dropna().unique()
+    
+    # Sort dates by day number (7, 13, 14, etc.)
+    def extract_day_number(date_str):
+        try:
+            # Extract the day number from the beginning of the date string
+            import re
+            match = re.match(r'^(\d+)', str(date_str).strip())
+            if match:
+                return int(match.group(1))
+            else:
+                return 999  # Put unparseable dates at the end
+        except:
+            return 999
+    
+    # Sort by day number
+    dates = sorted(unique_dates, key=extract_day_number)
 
     # Prepare the new DataFrame
     # Build DataFrame from unique (Feo, Anarana) pairs
     unique_pairs = df_merged[['Feo', 'Anarana']].drop_duplicates()
     result = unique_pairs.reset_index(drop=True)
 
-    # For each date, mark present/absent
+    # Create a dictionary to store presence data for each date
+    presence_data = {}
     for date in dates:
-        result[date] = result['Anarana'].apply(
+        presence_data[date] = result['Anarana'].apply(
             lambda name: 'P' if not df_merged[(df_merged['Anarana'] == name) & (df_merged['Daty'] == date)].empty else 'A'
         )
+    
+    # Add date columns in the correct chronological order
+    for date in dates:
+        result[date] = presence_data[date]
 
     # --- Add Fahatongavana column: sum of "P" per row ---
     presence_cols = dates  # columns with P/A
     total_dates = len(presence_cols)
     fahatongavana_col = f"Fahatongavana({total_dates})"
     result[fahatongavana_col] = result[presence_cols].apply(lambda row: sum(val == "P" for val in row), axis=1)
+
+    # Ensure column order is preserved: Feo, Anarana, dates in chronological order, then Fahatongavana
+    column_order = ['Feo', 'Anarana'] + dates + [fahatongavana_col]
+    result = result[column_order]
 
     # Export to new Excel file
     output_pivot = 'tmi_presence_tracker_pivot.xlsx'
@@ -314,5 +339,3 @@ def merge_attendance():
     # Save the split workbook
     split_output = "tmi_presence_tracker_pivot_with_emplacement_split.xlsx"
     split_wb.save(split_output)
-
-

@@ -66,13 +66,35 @@ def haversine(lat1, lon1, lat2, lon2):
 
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c  # distance in meters
+    distance = R * c
+    return round(distance)  # distance in meters
 
 def get_member_id(username: str):
     response = supabase.table("members").select("*").eq("username", username).execute().data[0] if username else None
     if not response:
         raise ValueError("Member not found")
     return response["id"]
+
+def get_emplacement():
+    tz = timezone(timedelta(hours=3))
+    now = datetime.now(tz)
+    start_of_day = datetime.combine(now.date(), datetime.min.time(), tzinfo=tz)
+    end_of_day = start_of_day + timedelta(days=1)
+
+    response = supabase.table("attendance") \
+        .select("emplacement, timestamp") \
+        .gte("timestamp", start_of_day.isoformat()) \
+        .lt("timestamp", end_of_day.isoformat()) \
+        .limit(1) \
+        .execute()
+
+    data = response.data
+    if data and len(data) > 0:
+        value = data[0]["emplacement"]
+    else:
+        value = "aucun"
+    return value
+
 
 def load_today_attendance_one():
     global today_records_attendance
@@ -86,7 +108,7 @@ def load_today_attendance_one():
         .gte("timestamp", start_of_day.isoformat())\
         .lt("timestamp", end_of_day.isoformat())\
         .limit(1)\
-        .execute().data
+        .execute().data 
 
     today_records_attendance = response if response else []
 
@@ -227,19 +249,17 @@ async def recognize(file: UploadFile = File(...), emplacement: str = Form(...), 
     now = datetime.now(tz)
     start_of_day = datetime.combine(now.date(), datetime.min.time(), tzinfo=tz)
     end_of_day = start_of_day + timedelta(days=1)
-    res = supabase.table("gps")\
-        .select("latitude,longitude,timestamp")\
-        .gte("timestamp", start_of_day.isoformat())\
-        .lt("timestamp", end_of_day.isoformat())\
-        .order("timestamp", desc=True)\
-        .execute().data[0] if supabase.table("gps").select("*").execute().data else None
-    if not res:
-        return {"status": "noadmin", "messagenoadmin": "Aucun admin connecté aujourd'hui!"}
+    gps_data = supabase.table("gps")\
+        .select("latitude,longitude")\
+        .execute().data
+    if not gps_data:
+        return {"status": "noadmin", "messagenoadmin": "Aucun GPS activé par l'ADMIN aujourd'hui!"}
+    res = gps_data[0]
     
     distance = haversine(res["latitude"], res["longitude"], latitude, longitude)
 
-    if distance > 50:  # 50 meters threshold
-        return {"status": "distance", "messagedistance": "+50m par rapport à l'admin!"} 
+    if distance > 150:  # 100 meters threshold
+        return {"status": "distance", "messagedistance": f"+ de 150m inacceptable: {distance}m!"} 
     # Read image bytes
     contents = await file.read()
     np_img = np.frombuffer(contents, np.uint8)
@@ -373,12 +393,13 @@ async def login(file: UploadFile = File(...), latitude: float = Form(...), longi
     response = supabase.table("members").select("username,is_admin").eq("username", name).execute().data[0] if name else None
     if not response:
         return {"status": "notfound", "messagenotfound": "Veuillez vous enregistrer auprès de l'admin!"} 
-    
+    GPS_ID = "00000000-0000-0000-0000-000000000001"
+    supabase_emplacement = get_emplacement()
     if response.get("is_admin") == True:
-        supabase.table("gps").insert({"latitude": latitude, "longitude": longitude}).execute()
-        return {"status": "successadmin", "messageadmin": f"Bienvenue ADMIN {name}!"}
-    else:
-        return {"status": "successmember", "messagemember": f"Bienvenue {name}!"}
+        supabase.table("gps").upsert({"id": GPS_ID, "latitude": latitude, "longitude": longitude}).execute()
+        return {"status": "successadmin", "messageadmin": f"Bienvenue ADMIN {name}!", "sup_emplacement": supabase_emplacement}
+    if response.get("is_admin") == False:
+        return {"status": "successmember", "messagemember": f"Bienvenue {name}!", "sup_emplacement": supabase_emplacement}
 
 @app.websocket("/ws/recognize")
 async def ws_recognize(ws: WebSocket):
